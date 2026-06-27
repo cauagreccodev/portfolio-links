@@ -44,6 +44,38 @@ async function fetchInstagramAvatarUrl() {
   }
 }
 
+async function resolveInstagramAvatarUrl() {
+  try {
+    return await fetchInstagramAvatarUrl();
+  } catch {
+    return FALLBACK_AVATAR;
+  }
+}
+
+async function fetchAvatarImage(avatarUrl) {
+  const response = await fetch(avatarUrl, {
+    headers: {
+      Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      Referer: "https://www.instagram.com/",
+      "Sec-Fetch-Dest": "image",
+      "Sec-Fetch-Mode": "no-cors",
+      "Sec-Fetch-Site": "cross-site",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Instagram image responded with ${response.status}`);
+  }
+
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    contentType: response.headers.get("content-type") || "image/jpeg",
+  };
+}
+
 module.exports = async function handler(request, response) {
   if (request.method === "OPTIONS") {
     response.statusCode = 204;
@@ -61,15 +93,21 @@ module.exports = async function handler(request, response) {
   }
 
   try {
-    const avatarUrl = await fetchInstagramAvatarUrl();
-    response.statusCode = 302;
-    response.setHeader("Location", avatarUrl);
-    response.setHeader("Cache-Control", "public, s-maxage=900");
-    response.end();
+    const avatarUrl = await resolveInstagramAvatarUrl();
+    const image = await fetchAvatarImage(avatarUrl);
+
+    response.statusCode = 200;
+    response.setHeader("Content-Type", image.contentType);
+    response.setHeader("Access-Control-Allow-Origin", "*");
+    response.setHeader(
+      "Cache-Control",
+      "public, s-maxage=3600, stale-while-revalidate=86400",
+    );
+    response.end(image.bytes);
   } catch {
-    response.statusCode = 302;
-    response.setHeader("Location", FALLBACK_AVATAR);
+    response.statusCode = 502;
+    response.setHeader("Content-Type", "text/plain; charset=utf-8");
     response.setHeader("Cache-Control", "public, s-maxage=60");
-    response.end();
+    response.end("Instagram avatar unavailable");
   }
 };
